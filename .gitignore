@@ -23,3 +23,6 @@ go.work.sum
 
 # env file
 .env
+bin
+internal/service/atak/.DS_Store
+.DS_Store
