@@ -1,2 +1,2 @@
 # go-tak
-Go pack for Team Awareness Kit (TAK) integration
+Go package for Team Awareness Kit (TAK) integration

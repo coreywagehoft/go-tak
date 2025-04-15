@@ -1,15 +1,28 @@
 package client
 
 import (
+	"context"
+	"encoding/xml"
 	"fmt"
 	"net"
+	"time"
+
+	"github.com/coreywagehoft/go-tak/pkg/cot"
+	"github.com/coreywagehoft/go-tak/pkg/cotproto"
+)
+
+const (
+	idleTimeout = 5 * time.Minute
+	pingTimeout = time.Second * 15
 )
 
 type TakClient struct {
-	Conn net.Conn
+	Conn     net.Conn
+	sendChan chan []byte
+	cancel   context.CancelFunc
 }
 
-func NewTakClient(host string, port int) (*TakClient, error) {
+func NewTakClient(ctx context.Context, host string, port int) (*TakClient, error) {
 
 	if host == "" {
 		return nil, fmt.Errorf("host cannot be empty")
@@ -26,8 +39,14 @@ func NewTakClient(host string, port int) (*TakClient, error) {
 	}
 
 	client := &TakClient{
-		Conn: conn,
+		Conn:     conn,
+		sendChan: make(chan []byte, 50),
 	}
+
+	ctx, client.cancel = context.WithCancel(ctx)
+
+	go client.handleWrite()
+	go client.pinger(ctx)
 
 	return client, nil
 }
@@ -39,16 +58,61 @@ func (c *TakClient) Close() error {
 	return nil
 }
 
-func (c *TakClient) SendMessage(message []byte) error {
+func (c *TakClient) pinger(ctx context.Context) {
+	ticker := time.NewTicker(pingTimeout)
+	defer ticker.Stop()
+
+	for ctx.Err() == nil {
+		select {
+		case <-ticker.C:
+			// TODO ADD LOGGER
+
+			if err := c.SendCot(cot.MakePing("go-tak-client")); err != nil {
+				// h.logger.Debug("sendMsg error", slog.Any("error", err))
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (c *TakClient) handleWrite() {
+	for msg := range c.sendChan {
+		if _, err := c.Conn.Write(msg); err != nil {
+			// TODO LOGGER
+			c.Stop()
+
+			break
+		}
+	}
+}
+
+func (c *TakClient) SendCot(msg *cotproto.TakMessage) error {
 	if c.Conn == nil {
 		return fmt.Errorf("connection is not established")
 	}
 
-	// Send the message to the server
-	_, err := c.Conn.Write(message)
-	if err != nil {
-		return fmt.Errorf("failed to send message: %v", err)
+	if msg == nil {
+		return fmt.Errorf("message cannot be nil")
 	}
 
+	// Convert the message to bytes
+	buf, err := xml.Marshal(cot.ProtoToEvent(msg))
+	if err != nil {
+		return err
+	}
+
+	// Send the message to the server
+	c.sendChan <- buf
+
 	return nil
+}
+
+func (c *TakClient) Stop() {
+
+	if c.Conn != nil {
+		c.Conn.Close()
+	}
+
+	close(c.sendChan)
 }
