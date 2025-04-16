@@ -9,6 +9,7 @@ import (
 
 	"github.com/coreywagehoft/go-tak/pkg/cot"
 	"github.com/coreywagehoft/go-tak/pkg/cotproto"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -18,6 +19,7 @@ const (
 
 type TakClient struct {
 	Conn     net.Conn
+	Logger   zerolog.Logger
 	sendChan chan []byte
 	cancel   context.CancelFunc
 }
@@ -66,9 +68,10 @@ func (c *TakClient) pinger(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			// TODO ADD LOGGER
+			c.Logger.Debug().Msg("Sending ping")
 
 			if err := c.SendCot(cot.MakePing("go-tak-client")); err != nil {
-				// h.logger.Debug("sendMsg error", slog.Any("error", err))
+				c.Logger.Error().Err(err).Msg("sendMsg error")
 			}
 		case <-ctx.Done():
 			return
@@ -95,6 +98,8 @@ func (c *TakClient) SendCot(msg *cotproto.TakMessage) error {
 	if msg == nil {
 		return fmt.Errorf("message cannot be nil")
 	}
+
+	c.Logger.Debug().Interface("TakMessage", &msg).Msg("Sending message")
 
 	// Convert the message to bytes
 	buf, err := xml.Marshal(cot.ProtoToEvent(msg))
