@@ -24,6 +24,8 @@ type TakClient struct {
 	cancel   context.CancelFunc
 }
 
+var c *TakClient
+
 func NewTakClient(ctx context.Context, host string, port int) (*TakClient, error) {
 
 	if host == "" {
@@ -50,7 +52,16 @@ func NewTakClient(ctx context.Context, host string, port int) (*TakClient, error
 	go client.handleWrite()
 	go client.pinger(ctx)
 
+	c = client
+
 	return client, nil
+}
+
+func GetClient() *TakClient {
+	if c == nil {
+		return nil
+	}
+	return c
 }
 
 func (c *TakClient) Close() error {
