@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net"
+	"os"
 	"time"
 
 	"github.com/coreywagehoft/go-tak/pkg/cot"
@@ -17,6 +18,12 @@ const (
 	pingTimeout = time.Second * 15
 )
 
+type ClientConfig struct {
+	Host   string
+	Port   int
+	Logger *zerolog.Logger
+}
+
 type TakClient struct {
 	Conn     net.Conn
 	Logger   zerolog.Logger
@@ -26,18 +33,18 @@ type TakClient struct {
 
 var c *TakClient
 
-func NewTakClient(ctx context.Context, host string, port int) (*TakClient, error) {
+func NewTakClient(ctx context.Context, config ClientConfig) (*TakClient, error) {
 
-	if host == "" {
+	if config.Host == "" {
 		return nil, fmt.Errorf("host cannot be empty")
 	}
 
-	if port <= 0 || port > 65535 {
+	if config.Port <= 0 || config.Port > 65535 {
 		return nil, fmt.Errorf("port must be between 1 and 65535")
 	}
 
 	// Connect to the server
-	conn, err := net.Dial("tcp", net.JoinHostPort(host, fmt.Sprint(port)))
+	conn, err := net.Dial("tcp", net.JoinHostPort(config.Host, fmt.Sprint(config.Port)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to server: %v", err)
 	}
@@ -45,6 +52,12 @@ func NewTakClient(ctx context.Context, host string, port int) (*TakClient, error
 	client := TakClient{
 		Conn:     conn,
 		sendChan: make(chan []byte, 50),
+	}
+
+	if config.Logger == nil {
+		client.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
+	} else {
+		client.Logger = *config.Logger
 	}
 
 	ctx, client.cancel = context.WithCancel(ctx)
