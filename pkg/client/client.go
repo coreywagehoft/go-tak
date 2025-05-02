@@ -42,7 +42,7 @@ func NewTakClient(ctx context.Context, host string, port int) (*TakClient, error
 		return nil, fmt.Errorf("failed to connect to server: %v", err)
 	}
 
-	client := &TakClient{
+	client := TakClient{
 		Conn:     conn,
 		sendChan: make(chan []byte, 50),
 	}
@@ -52,9 +52,9 @@ func NewTakClient(ctx context.Context, host string, port int) (*TakClient, error
 	go client.handleWrite()
 	go client.pinger(ctx)
 
-	c = client
+	c = &client
 
-	return client, nil
+	return &client, nil
 }
 
 func GetClient() *TakClient {
