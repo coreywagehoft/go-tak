@@ -1,16 +1,14 @@
 package cot
 
 import (
-	"time"
-
-	"github.com/google/uuid"
-
+	"fmt"
 	"github.com/coreywagehoft/go-tak/pkg/cotproto"
+	"github.com/google/uuid"
+	"time"
 )
 
-const NotNum = 999999
-
-func BasicMsg(typ string, uid string, stale time.Duration) *cotproto.TakMessage {
+// BasicMsg constructs a base CoT message with default fields.
+func BasicMsg(typ, uid string, stale time.Duration) *cotproto.TakMessage {
 	return &cotproto.TakMessage{
 		CotEvent: &cotproto.CotEvent{
 			Type:      typ,
@@ -21,7 +19,7 @@ func BasicMsg(typ string, uid string, stale time.Duration) *cotproto.TakMessage 
 			SendTime:  TimeToMillis(time.Now()),
 			StartTime: TimeToMillis(time.Now()),
 			StaleTime: TimeToMillis(time.Now().Add(stale)),
-			How:       "m-g",
+			How:       HowDefault,
 			Lat:       0,
 			Lon:       0,
 			Hae:       NotNum,
@@ -32,30 +30,32 @@ func BasicMsg(typ string, uid string, stale time.Duration) *cotproto.TakMessage 
 	}
 }
 
+// MakePing returns a CoT ping message for the given UID.
 func MakePing(uid string) *cotproto.TakMessage {
-	return BasicMsg("t-x-c-t", uid+"-ping", time.Second*10)
+	return BasicMsg(TypePing, uid+"-ping", 10*time.Second)
 }
 
+// MakePong returns a CoT pong response message.
 func MakePong() *cotproto.TakMessage {
-	msg := BasicMsg("t-x-c-t-r", "takPong", time.Second*20)
-	msg.CotEvent.How = "h-g-i-g-o"
-
+	msg := BasicMsg(TypePong, "takPong", 20*time.Second)
+	msg.CotEvent.How = HowResponse
 	return msg
 }
 
-func MakeOfflineMsg(uid string, typ string) *cotproto.TakMessage {
-	msg := BasicMsg("t-x-d-d", uuid.New().String(), time.Minute*3)
-	msg.CotEvent.How = "h-g-i-g-o"
+// MakeOfflineMsg creates an offline CoT message with a pp link.
+func MakeOfflineMsg(uid, typ string) *cotproto.TakMessage {
+	msg := BasicMsg(TypeOffline, uuid.New().String(), 3*time.Minute)
+	msg.CotEvent.How = HowResponse
 	xd := NewXMLDetails()
 	xd.AddPpLink(uid, typ, "")
 	msg.CotEvent.Detail = &cotproto.Detail{XmlDetail: xd.AsXMLString()}
-
 	return msg
 }
 
-func MakeDpMsg(uid string, typ string, name string, lat float64, lon float64) *cotproto.TakMessage {
-	msg := BasicMsg("b-m-p-s-p-i", uid+".SPI1", time.Second*20)
-	msg.CotEvent.How = "h-e"
+// MakeDpMsg builds a CoT SPI message with contact details.
+func MakeDpMsg(uid, typ, name string, lat, lon float64) *cotproto.TakMessage {
+	msg := BasicMsg(TypeDpSpi, uid+".SPI1", 20*time.Second)
+	msg.CotEvent.How = HowEvent
 	msg.CotEvent.Lat = lat
 	msg.CotEvent.Lon = lon
 	xd := NewXMLDetails()
@@ -64,6 +64,43 @@ func MakeDpMsg(uid string, typ string, name string, lat float64, lon float64) *c
 		XmlDetail: xd.AsXMLString(),
 		Contact:   &cotproto.Contact{Callsign: name},
 	}
-
 	return msg
+}
+
+// TeamMarkerOpts contains options for constructing a team marker message.
+type TeamMarkerOpts struct {
+	UID       string
+	Callsign  string
+	GroupName string
+	Role      string
+	Lat, Lon  float64
+	Stale     time.Duration
+}
+
+// MakeTeamMarker returns a CoT team position message, validating inputs.
+func MakeTeamMarker(o TeamMarkerOpts) (*cotproto.TakMessage, error) {
+	if o.Lat < -90 || o.Lat > 90 || o.Lon < -180 || o.Lon > 180 {
+		return nil, fmt.Errorf("invalid coordinates: (%f, %f)", o.Lat, o.Lon)
+	}
+	if o.Stale <= 0 {
+		return nil, fmt.Errorf("stale duration must be >0")
+	}
+
+	msg := BasicMsg(TypeTeam, o.UID, o.Stale)
+	msg.CotEvent.How = HowDefault
+	msg.CotEvent.Lat = o.Lat
+	msg.CotEvent.Lon = o.Lon
+	msg.CotEvent.Hae = 0
+	msg.CotEvent.Ce = NotNum
+	msg.CotEvent.Le = NotNum
+	msg.CotEvent.Detail = &cotproto.Detail{
+		Contact: &cotproto.Contact{
+			Callsign: o.Callsign,
+		},
+		Group: &cotproto.Group{
+			Name: o.GroupName,
+			Role: o.Role,
+		},
+	}
+	return msg, nil
 }
