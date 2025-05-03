@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/coreywagehoft/go-tak/pkg/cot"
@@ -18,10 +19,18 @@ const (
 	pingTimeout = time.Second * 15
 )
 
-type ClientConfig struct {
-	Host   string
-	Port   int
-	Logger *zerolog.Logger
+type Config struct {
+	Host      string
+	Port      int
+	Logger    zerolog.Logger
+	Reconnect ReconnectPolicy
+}
+
+type ReconnectPolicy struct {
+	Enable     bool
+	MinDelay   time.Duration
+	MaxDelay   time.Duration
+	MaxRetries int
 }
 
 type TakClient struct {
@@ -31,7 +40,7 @@ type TakClient struct {
 	cancel   context.CancelFunc
 }
 
-func NewTakClient(ctx context.Context, config ClientConfig) (*TakClient, error) {
+func NewTakClient(ctx context.Context, config Config) (*TakClient, error) {
 
 	if config.Host == "" {
 		return nil, fmt.Errorf("host cannot be empty")
@@ -41,10 +50,10 @@ func NewTakClient(ctx context.Context, config ClientConfig) (*TakClient, error) 
 		return nil, fmt.Errorf("port must be between 1 and 65535")
 	}
 
-	// Connect to the server
-	conn, err := net.Dial("tcp", net.JoinHostPort(config.Host, fmt.Sprint(config.Port)))
+	addr := net.JoinHostPort(config.Host, fmt.Sprint(config.Port))
+	conn, err := dialWithBackoff(ctx, addr, config.Logger, config.Reconnect)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to server: %v", err)
+		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 
 	client := TakClient{
@@ -52,10 +61,11 @@ func NewTakClient(ctx context.Context, config ClientConfig) (*TakClient, error) 
 		sendChan: make(chan []byte, 50),
 	}
 
-	if config.Logger == nil {
-		client.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
+	if reflect.ValueOf(config.Logger).IsZero() {
+		client.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).
+			With().Timestamp().Logger()
 	} else {
-		client.Logger = *config.Logger
+		client.Logger = config.Logger
 	}
 
 	ctx, client.cancel = context.WithCancel(ctx)
@@ -79,8 +89,10 @@ func (c *TakClient) pinger(ctx context.Context) {
 	for ctx.Err() == nil {
 		select {
 		case <-ticker.C:
-			// TODO ADD LOGGER
-			c.Logger.Debug().Msg("Sending ping")
+			c.Logger.Debug().
+				Str("remote", c.Conn.RemoteAddr().String()).
+				Dur("interval", pingTimeout).
+				Msg("sending ping")
 
 			if err := c.SendCot(cot.MakePing("go-tak-client")); err != nil {
 				c.Logger.Error().Err(err).Msg("sendMsg error")
@@ -94,14 +106,18 @@ func (c *TakClient) pinger(ctx context.Context) {
 func (c *TakClient) handleWrite() {
 	for msg := range c.sendChan {
 		if _, err := c.Conn.Write(msg); err != nil {
-			// TODO LOGGER
-			c.Stop()
 
+			c.Logger.Error().
+				Err(err).
+				Int("bytes", len(msg)).
+				Str("remote", c.Conn.RemoteAddr().String()).
+				Msg("TCP write failed, stopping client")
+
+			c.Stop()
 			break
 		}
 	}
 }
-
 func (c *TakClient) SendCot(msg *cotproto.TakMessage) error {
 	if c.Conn == nil {
 		return fmt.Errorf("connection is not established")
