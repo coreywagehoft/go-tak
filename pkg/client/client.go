@@ -135,8 +135,13 @@ func (c *TakClient) SendCot(msg *cotproto.TakMessage) error {
 		return err
 	}
 
+	// Format according to Traditional Protocol spec:
+	// <?xml version='1.0' encoding='UTF-8' standalone='yes'?>\n<event>...</event>
+	fullMsg := []byte(xml.Header)
+	fullMsg = append(fullMsg, buf...)
+
 	// Send the message to the server
-	c.sendChan <- buf
+	c.sendChan <- fullMsg
 
 	return nil
 }
