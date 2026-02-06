@@ -132,6 +132,25 @@ func ProtoChangeOkMsg() *Event {
 	return ev
 }
 
+// MakeXMLEvent converts an Event to properly formatted XML bytes for streaming.
+// According to Traditional Protocol: <?xml header> + newline + <event>...</event>
+func MakeXMLEvent(event *Event) ([]byte, error) {
+	if event == nil {
+		return nil, fmt.Errorf("event cannot be nil")
+	}
+
+	eventBytes, err := xml.Marshal(event)
+	if err != nil {
+		return nil, err
+	}
+
+	// Format: <?xml version='1.0' encoding='UTF-8' standalone='yes'?>\n<event>...</event>
+	result := []byte(xml.Header)
+	result = append(result, eventBytes...)
+
+	return result, nil
+}
+
 // Geopointsrc = "USER" Altsrc - "DTED0"
 // ce
 // high   0 - cat1,  7 - CAT2 16 - CAT3 31 - CAT4 92 - CAT5
